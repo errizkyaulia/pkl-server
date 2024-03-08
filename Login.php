@@ -10,12 +10,15 @@ $client_ip = getClientIp();
 $max_attempts = 3;
 $lockout_time = 300; // seconds
 
+// Set BOOLEAN to 0
+$result_bool = 0;
+
 // Retrieve stored attempts and timestamp from the database for the client IP address
 // And check if the IP address is already in the database with a failed login attempt which is result = 0
 // So that we can update the last attempt time and the number of attempts
 // So the client IP with successful login attempt won't be affected
 $stmt = mysqli_prepare($con, "SELECT id_attempts, attempts, last_attempt_time, result FROM login_attempts WHERE ip_address = ? AND result = ? LIMIT 1");
-mysqli_stmt_bind_param($stmt, "s", $client_ip, 0);
+mysqli_stmt_bind_param($stmt, "si", $client_ip, $result_bool);
 mysqli_stmt_execute($stmt);
 mysqli_stmt_store_result($stmt);
 
