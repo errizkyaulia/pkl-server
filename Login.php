@@ -1,6 +1,6 @@
 <?php
 
-require_once 'connection.php';
+require 'connection.php';
 require 'functions.php';
 
 // Get client IP
