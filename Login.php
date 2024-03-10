@@ -1,24 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login Simulation</title>
-</head>
-<body>
-    <h2>Login Simulation</h2>
-
-    <form id="loginForm" action="Login.php" method="post">
-        <label for="username_email">Username or Email:</label>
-        <input type="text" id="username_email" name="username_email" required>
-
-        <label for="password">Password:</label>
-        <input type="password" id="password" name="password" required>
-
-        <button type="submit">Login</button>
-    </form>
-</body>
-</html>
 <?php
 
 require 'connection.php';
@@ -31,15 +10,16 @@ $client_ip = getClientIp();
 $max_attempts = 3;
 $lockout_time = 300; // seconds
 
-// Set BOOLEAN to 0
-$result_bool = 0;
+// Set 0 and 1
+$zero = 0;
+$one = 1;
 
 // Retrieve stored attempts and timestamp from the database for the client IP address
 // And check if the IP address is already in the database with a failed login attempt which is result = 0
 // So that we can update the last attempt time and the number of attempts
 // So the client IP with successful login attempt won't be affected
 $stmt = mysqli_prepare($con, "SELECT id_attempts, attempts, last_attempt_time, result FROM login_attempts WHERE ip_address = ? AND result = ? LIMIT 1");
-mysqli_stmt_bind_param($stmt, "si", $client_ip, $result_bool);
+mysqli_stmt_bind_param($stmt, "si", $client_ip, $zero);
 mysqli_stmt_execute($stmt);
 mysqli_stmt_store_result($stmt);
 
@@ -48,12 +28,12 @@ if (mysqli_stmt_num_rows($stmt) > 0) {
     mysqli_stmt_bind_result($stmt, $id_attempts, $attempts, $last_attempt_time, $result);
     mysqli_stmt_fetch($stmt);
 
-    // Set id_attempts in the session
-    $_SESSION['id_attempts'] = $id_attempts;
+    // Set id_attempts in the local session
+    $local_session_id_attempts = $id_attempts;
 
     // Update the last attempt count and time
-    $_SESSION['login_attempts'] = $attempts;
-    $_SESSION['last_login_attempt_time'] = $last_attempt_time;
+    $local_session_login_attempts = $attempts;
+    $local_session_last_login_attempt_time = $last_attempt_time;
 
     // Calculate the elapsed time since the last attempt
     $elapsed_time = time() - $last_attempt_time;
@@ -69,18 +49,18 @@ if (mysqli_stmt_num_rows($stmt) > 0) {
     }
 }
 
-// Set the session counter for login attempts
-if (!isset($_SESSION['login_attempts'])) {
-    $_SESSION['login_attempts'] = 0;
+// Set the local session counter for login attempts
+if (!isset($local_session_login_attempts)) {
+    $local_session_login_attempts = 0;
 }
 
 // Check if there is a previous delay that needs to be reset
-if (isset($_SESSION['last_login_attempt_time'])) {
-    $elapsed_time = time() - $_SESSION['last_login_attempt_time'];
+if (isset($local_session_last_login_attempt_time)) {
+    $elapsed_time = time() - $local_session_last_login_attempt_time;
     if ($elapsed_time >= 300) {
         // Reset login attempts after 5 minutes
-        $_SESSION['login_attempts'] = 0;
-        unset($_SESSION['last_login_attempt_time']);
+        $local_session_login_attempts = 0;
+        unset($local_session_last_login_attempt_time);
     }
 }
 
@@ -89,18 +69,21 @@ $error_message = "";
 
 // Check if the form is submitted
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
+    // Set the input time
+    $input_time = time();
+
     // Get the form data
     $username_email = mysqli_real_escape_string($con, $_POST['username_email']);
     $password = mysqli_real_escape_string($con, $_POST['password']);
 
     // Check if login attempts exceed a threshold
-    if ($_SESSION['login_attempts'] >= 3) {
-        $remaining_time = 300 - (time() - $_SESSION['last_login_attempt_time']);
+    if ($local_session_login_attempts >= 3) {
+        $remaining_time = 300 - (time() - $local_session_last_login_attempt_time);
         
         if ($remaining_time > 0) {
             // Add a delay to discourage brute-force attacks
             sleep($remaining_time);
-            $_SESSION['last_login_attempt_time'] = time();
+            $local_session_last_login_attempt_time = time();
             
             // Calculate the remaining time in minutes and seconds
             $minutes = floor($remaining_time / 60);
@@ -139,25 +122,25 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $user_type = 'admin';
     } else {
         $error_message = "Invalid_attempts username or email";
-        // Session adding counter for login attempts
-        $_SESSION['login_attempts']++;
+        // Local session adding counter for login attempts
+        $local_session_login_attempts++;
 
         // Set the current login attempts
-        $cur_log_attempts = $_SESSION['login_attempts'];
+        $cur_log_attempts = $local_session_login_attempts;
 
         // Check if the $id_attempts is set
-        if (isset($_SESSION['id_attempts'])) {
+        if (isset($local_session_id_attempts)) {
             // Set the current id_attempts
-            $cur_id_attempts = $_SESSION['id_attempts'];
+            $cur_id_attempts = $local_session_id_attempts;
 
             // Update the last attempt count and time
             $stmt_update_attempt = mysqli_prepare($con, "UPDATE login_attempts SET attempts = ?, last_attempt_time = ? WHERE id_attempts = ?");
-            mysqli_stmt_bind_param($stmt_update_attempt, "iii", $cur_log_attempts, time(), $cur_id_attempts);
+            mysqli_stmt_bind_param($stmt_update_attempt, "iii", $cur_log_attempts, $input_time, $cur_id_attempts);
             mysqli_stmt_execute($stmt_update_attempt);
         } else {
             // Log the login attempt with the result which is unknown user or email into the database
-            $stmt_log_attempt = mysqli_prepare($con, "INSERT INTO login_attempts (ip_address, attempts, last_attempt_time, result) VALUES (?, ?, ?, 0)");
-            mysqli_stmt_bind_param($stmt_log_attempt, "sii", $client_ip, $cur_log_attempts, time());
+            $stmt_log_attempt = mysqli_prepare($con, "INSERT INTO login_attempts (ip_address, attempts, last_attempt_time, result) VALUES (?, ?, ?, $zero)");
+            mysqli_stmt_bind_param($stmt_log_attempt, "sii", $client_ip, $cur_log_attempts, $input_time);
             mysqli_stmt_execute($stmt_log_attempt);
         }
 
@@ -172,40 +155,42 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         if ($auth_result) {
             // Reset login attempts on successful login
-            $_SESSION['login_attempts'] = 0;
+            $reset_log_attempts = 0;
 
             // Check if the $id_attempts is set
-            if (isset($_SESSION['id_attempts'])) {
+            if (isset($local_session_id_attempts)) {
+                // Set the current id_attempts
+                $res_id_attempts = $local_session_id_attempts;
                 // Update the last attempt count and time
-                $stmt_update_attempt = mysqli_prepare($con, "UPDATE login_attempts SET attempts = ?, last_attempt_time = ?, result = 1 WHERE id_attempts = ?");
-                mysqli_stmt_bind_param($stmt_update_attempt, "iii", $_SESSION['login_attempts'], time(), $_SESSION['id_attempts']);
+                $stmt_update_attempt = mysqli_prepare($con, "UPDATE login_attempts SET attempts = ?, last_attempt_time = ?, result = ? WHERE id_attempts = ?");
+                mysqli_stmt_bind_param($stmt_update_attempt, "iiii", $reset_log_attempts, $input_time, $one, $res_id_attempts);
                 mysqli_stmt_execute($stmt_update_attempt);
             } else {
                 // Log the successful login attempt
-                $stmt_log_attempt = mysqli_prepare($con, "INSERT INTO login_attempts (ip_address, attempts, last_attempt_time, result) VALUES (?, ?, ?, 1)");
-                mysqli_stmt_bind_param($stmt_log_attempt, "sii", $client_ip, $_SESSION['login_attempts'], time());
+                $stmt_log_attempt = mysqli_prepare($con, "INSERT INTO login_attempts (ip_address, attempts, last_attempt_time, result) VALUES (?, ?, ?, $one)");
+                mysqli_stmt_bind_param($stmt_log_attempt, "sii", $client_ip, $reset_log_attempts, $input_time);
                 mysqli_stmt_execute($stmt_log_attempt);
 
                 // Get the id_attempts of the last inserted record
-                $_SESSION['id_attempts'] = mysqli_insert_id($con);
+                $local_session_id_attempts = mysqli_insert_id($con);
             }
 
-            // Set session based on user type
-            $_SESSION['user_type'] = $user_type;
+            // Set local session based on user type
+            $local_session['user_type'] = $user_type;
 
-            // Set 0
-            $zero = 0;
-
-            // Set success_id_attempts from the session
-            $success_id_attempts = $_SESSION['id_attempts'];
+            // Set success_id_attempts from the local session
+            $success_id_attempts = $local_session_id_attempts;
 
             if ($user_type === 'user') {
-                // Set the user ID in the session
-                $_SESSION['user'] = $userid;
+                // Set the user ID in the local session
+                $local_session['user'] = $userid;
 
                 // insert successful login attempt into login_records table for user and admin set to 0
                 $stmt_login_record = mysqli_prepare($con, "INSERT INTO login_records (id_attempts, AdminID, UserID) VALUES (?, ?, ?)");
-                mysqli_stmt_bind_param($stmt_login_record, "iii", $success_id_attempts, $zero, $userid);
+                $id_param = $success_id_attempts;
+                $admin_param = $zero;
+                $user_param = $userid;
+                mysqli_stmt_bind_param($stmt_login_record, "iii", $id_param, $admin_param, $user_param);
                 mysqli_stmt_execute($stmt_login_record);
 
                 // Send a JSON response indicating success and the user type
@@ -213,12 +198,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 exit();
 
             } elseif ($user_type === 'admin') {
-                // Set the admin ID in the session
-                $_SESSION['admin'] = $adminid;
+                // Set the admin ID in the local session
+                $local_session['admin'] = $adminid;
 
                 // insert successful login attempt into login_records table for admin and user set to 0
                 $stmt_login_record = mysqli_prepare($con, "INSERT INTO login_records (id_attempts, AdminID, UserID) VALUES (?, ?, ?)");
-                mysqli_stmt_bind_param($stmt_login_record, "iii", $success_id_attempts, $adminid, $zero);
+                $id_param = $success_id_attempts;
+                $admin_param = $adminid;
+                $user_param = $zero;
+                mysqli_stmt_bind_param($stmt_login_record, "iii", $id_param, $admin_param, $user_param);
                 mysqli_stmt_execute($stmt_login_record);
 
                 // Send a JSON response indicating success and the user type
@@ -227,30 +215,30 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             }
 
         } else {
-            // Session adding counter for login attempts for invalid password
-            $_SESSION['login_attempts']++;
+            // Local session adding counter for login attempts for invalid password
+            $local_session_login_attempts++;
 
             // Set the current login attempts
-            $current_login_attempts = $_SESSION['login_attempts'];
+            $current_login_attempts = $local_session_login_attempts;
 
             // Check if the $id_attempts is set
-            if (isset($_SESSION['id_attempts'])) {
+            if (isset($local_session_id_attempts)) {
                 // Set the current id_attempts
-                $current_id_attempts = $_SESSION['id_attempts'];
+                $current_id_attempts = $local_session_id_attempts;
 
                 // Update the last attempt count and time
                 $stmt_update_attempt = mysqli_prepare($con, "UPDATE login_attempts SET attempts = ?, last_attempt_time = ? WHERE id_attempts = ?");
-                mysqli_stmt_bind_param($stmt_update_attempt, "iii", $current_login_attempts, time(), $current_id_attempts);
+                mysqli_stmt_bind_param($stmt_update_attempt, "iii", $current_login_attempts, $input_time, $current_id_attempts);
                 mysqli_stmt_execute($stmt_update_attempt);
             } else {
                 // Log the login attempt with the result
-                $stmt_log_attempt = mysqli_prepare($con, "INSERT INTO login_attempts (ip_address, attempts, last_attempt_time, result) VALUES (?, ?, ?, 0)");
-                mysqli_stmt_bind_param($stmt_log_attempt, "sii", $client_ip, $current_login_attempts, time());
+                $stmt_log_attempt = mysqli_prepare($con, "INSERT INTO login_attempts (ip_address, attempts, last_attempt_time, result) VALUES (?, ?, ?, $zero)");
+                mysqli_stmt_bind_param($stmt_log_attempt, "sii", $client_ip, $current_login_attempts, $input_time);
                 mysqli_stmt_execute($stmt_log_attempt);
             }
 
             // Set the error message
-            $error_message = "Invalid password. Current login attempts: " . $_SESSION['login_attempts'] . "/3";
+            $error_message = "Invalid password. Current login attempts: " . $local_session_login_attempts . "/3";
             // Send a JSON response indicating failure
             echo json_encode(['success' => false, 'error_message' => $error_message]);
             exit();
