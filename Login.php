@@ -1,5 +1,6 @@
 <?php
 
+// Include the database configuration file and session file
 require 'connection.php';
 require 'functions.php';
 
@@ -121,7 +122,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $adminid = $admin['AdminID'];
         $user_type = 'admin';
     } else {
-        $error_message = "Invalid_attempts username or email";
+        $error_message = "Invalid username or email";
         // Local session adding counter for login attempts
         $local_session_login_attempts++;
 
